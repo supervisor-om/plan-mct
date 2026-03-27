@@ -11,6 +11,9 @@
     <!-- Babel for JSX (تم تثبيت الإصدار المستقر 7.23.8 لتجنب أخطاء targets) -->
     <script src="https://unpkg.com/@babel/standalone@7.23.8/babel.min.js"></script>
 
+    <!-- مكتبة تصدير PDF مباشر -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
     <!-- Import Map: تعريف مصادر المكتبات -->
     <script type="importmap">
     {
@@ -77,11 +80,11 @@
             deleteField,
             getDoc
         } from 'firebase/firestore';
-        import { 
-            Calendar, FileSpreadsheet, User, Lock, Unlock, Save, LogOut, CheckCircle, 
-            Users, ChevronRight, ChevronLeft, Search, AlertCircle, AlertTriangle, 
-            CalendarDays, Trash2, Plus, Edit, X, RefreshCw, Copyright, FileDown, 
-            History, Download, KeyRound, Settings, Cloud, CalendarCheck
+        import {
+            Calendar, FileSpreadsheet, User, Lock, Unlock, Save, LogOut, CheckCircle,
+            Users, ChevronRight, ChevronLeft, Search, AlertCircle, AlertTriangle,
+            CalendarDays, Trash2, Plus, Edit, X, RefreshCw, Copyright, FileDown,
+            History, Download, KeyRound, Settings, Cloud, CalendarCheck, FileText
         } from 'lucide-react';
 
         // -----------------------------------------------------------
@@ -330,6 +333,7 @@
             const [isSaving, setIsSaving] = useState(false);
             const [statusMsg, setStatusMsg] = useState('');
             const [showPasswordModal, setShowPasswordModal] = useState(false);
+            const [isExportingPDF, setIsExportingPDF] = useState(false);
 
             useEffect(() => {
                 if (!db || !user) return;
@@ -390,6 +394,79 @@
                 window.focus(); setTimeout(() => { window.print(); setTimeout(() => document.title = originalTitle, 1000); }, 100);
             };
 
+            const handleExportPDF = async () => {
+                if (isExportingPDF) return;
+                setIsExportingPDF(true);
+                setStatusMsg('جاري إنشاء PDF...');
+                try {
+                    const dateStr = new Date(currentYear, currentMonth).toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
+                    let rows = '';
+                    workingDays.forEach((d, index) => {
+                        const dayNum = d.getDate();
+                        const dayName = d.toLocaleDateString('ar-EG', { weekday: 'long' });
+                        const key = 'd_' + dayNum;
+                        const mandKey = getMandatoryKey(currentYear, currentMonth, dayNum);
+                        const mandEvt = mandatoryEvents[mandKey];
+                        const task = mandEvt || planData[key] || '';
+                        const bg = mandEvt ? '#FFF3E0' : (index % 2 === 0 ? '#ffffff' : '#f9fafb');
+                        rows += `<tr style="background:${bg}">
+                            <td style="padding:8px 10px;border:1px solid #d1d5db;font-weight:bold;">${dayName}</td>
+                            <td style="padding:8px 10px;border:1px solid #d1d5db;text-align:center;">${dayNum}/${currentMonth + 1}</td>
+                            <td style="padding:8px 10px;border:1px solid #d1d5db;">${mandEvt ? '🔒 ' + task : task}</td>
+                        </tr>`;
+                    });
+
+                    const container = document.createElement('div');
+                    container.style.cssText = 'width:190mm;padding:15mm 10mm;font-family:Tajawal,Arial,sans-serif;direction:rtl;background:white;color:#111;';
+                    container.innerHTML = `
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:12px;margin-bottom:16px;">
+                            <div style="text-align:center;font-size:12px;"><p>سلطنة عُمان</p><p>وزارة التربية والتعليم</p></div>
+                            <div style="text-align:center;"><h1 style="font-size:16px;font-weight:bold;border:2px solid #000;padding:6px 18px;display:inline-block;border-radius:4px;">خطة سير المشرف</h1></div>
+                            <div style="text-align:center;font-size:12px;border:1px solid #000;padding:6px 12px;border-radius:4px;">${currentYear}/${currentYear + 1}</div>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;border:1px solid #000;padding:8px 12px;margin-bottom:16px;font-size:13px;">
+                            <span>الاسم: <b>${supervisorData.name}</b></span>
+                            <span>الرقم الوظيفي: <b>${supervisorData.jobId}</b></span>
+                            <span>الشهر: <b>${dateStr}</b></span>
+                        </div>
+                        <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:12px;">
+                            <thead>
+                                <tr style="background:#065f46;color:white;">
+                                    <th style="padding:9px 10px;border:1px solid #065f46;width:110px;">اليوم</th>
+                                    <th style="padding:9px 10px;border:1px solid #065f46;width:80px;">التاريخ</th>
+                                    <th style="padding:9px 10px;border:1px solid #065f46;">المهمة / المدرسة</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                        <div style="display:flex;justify-content:space-around;margin-top:20px;padding-top:16px;border-top:2px solid #000;font-size:13px;">
+                            <div style="text-align:center;">المشرف<br><br>______________</div>
+                            <div style="text-align:center;">المسؤول المباشر<br><br>______________</div>
+                            <div style="text-align:center;">المدير<br><br>______________</div>
+                        </div>
+                        <div style="text-align:center;margin-top:16px;font-size:10px;color:#666;">إعداد وتصميم: أ. أسعد الخصيبي - مشرف الرياضة المدرسية</div>
+                    `;
+                    document.body.appendChild(container);
+
+                    await html2pdf().set({
+                        margin: 0,
+                        filename: `خطة_${supervisorData.name}_${currentMonth + 1}_${currentYear}.pdf`,
+                        image: { type: 'jpeg', quality: 0.98 },
+                        html2canvas: { scale: 2, useCORS: true, logging: false },
+                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                    }).from(container).save();
+
+                    document.body.removeChild(container);
+                    setStatusMsg('✅ تم تصدير PDF');
+                } catch (e) {
+                    console.error(e);
+                    setStatusMsg('❌ فشل تصدير PDF');
+                } finally {
+                    setIsExportingPDF(false);
+                    setTimeout(() => setStatusMsg(''), 3000);
+                }
+            };
+
             const savePlan = async () => {
                 if (!settings.isOpen || !db) return;
                 setIsSaving(true);
@@ -434,7 +511,8 @@
                     </div>
                     <div className="flex gap-2">
                     <button onClick={() => setShowPasswordModal(true)} className="bg-emerald-800/50 hover:bg-emerald-800 p-2 rounded-full transition" title="تغيير كلمة المرور"><KeyRound size={18} /></button>
-                    <button onClick={handlePrint} className="bg-white/20 p-2 rounded-full hover:bg-white/30"><FileDown size={18} /></button>
+                    <button onClick={handleExportPDF} disabled={isExportingPDF} className="bg-white/20 p-2 rounded-full hover:bg-white/30 disabled:opacity-50" title="تصدير PDF مباشر">{isExportingPDF ? <RefreshCw size={18} className="animate-spin" /> : <FileText size={18} />}</button>
+                    <button onClick={handlePrint} className="bg-white/20 p-2 rounded-full hover:bg-white/30" title="طباعة"><FileDown size={18} /></button>
                     <button onClick={onLogout} className="bg-emerald-700 p-2 rounded-full hover:bg-emerald-800"><LogOut size={18} /></button>
                     </div>
                 </header>
@@ -559,6 +637,71 @@
                 const storedPass = docSnap.exists() && docSnap.data().adminPassword ? docSnap.data().adminPassword : '1234';
                 if (currentPass !== storedPass) throw new Error('كلمة المرور الحالية غير صحيحة');
                 await setDoc(docRef, { adminPassword: newPass }, { merge: true });
+            };
+
+            // دالة تصدير PDF للمشرف الواحد (من لوحة المدير)
+            const downloadSinglePlanPDF = async (plan) => {
+                const workingDaysInM = getWorkingDaysInMonth(currentYear, filterMonth);
+                const dateStr = new Date(currentYear, filterMonth).toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
+
+                let rows = '';
+                workingDaysInM.forEach((d, index) => {
+                    const dayNum = d.getDate();
+                    const dayName = d.toLocaleDateString('ar-EG', { weekday: 'long' });
+                    const key = 'd_' + dayNum;
+                    const mandKey = getMandatoryKey(currentYear, filterMonth, dayNum);
+                    const mandEvt = mandatoryEvents[mandKey];
+                    const task = mandEvt || (plan.visits && plan.visits[key]) || '';
+                    const bg = mandEvt ? '#FFF3E0' : (index % 2 === 0 ? '#ffffff' : '#f9fafb');
+                    rows += `<tr style="background:${bg}">
+                        <td style="padding:8px 10px;border:1px solid #d1d5db;font-weight:bold;">${dayName}</td>
+                        <td style="padding:8px 10px;border:1px solid #d1d5db;text-align:center;">${dayNum}/${filterMonth + 1}</td>
+                        <td style="padding:8px 10px;border:1px solid #d1d5db;">${mandEvt ? '🔒 ' + task : task}</td>
+                    </tr>`;
+                });
+
+                const container = document.createElement('div');
+                container.style.cssText = 'width:190mm;padding:15mm 10mm;font-family:Tajawal,Arial,sans-serif;direction:rtl;background:white;color:#111;';
+                container.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:12px;margin-bottom:16px;">
+                        <div style="text-align:center;font-size:12px;"><p>سلطنة عُمان</p><p>وزارة التربية والتعليم</p></div>
+                        <div style="text-align:center;"><h1 style="font-size:16px;font-weight:bold;border:2px solid #000;padding:6px 18px;display:inline-block;border-radius:4px;">خطة سير المشرف</h1></div>
+                        <div style="text-align:center;font-size:12px;border:1px solid #000;padding:6px 12px;border-radius:4px;">${currentYear}/${currentYear + 1}</div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;border:1px solid #000;padding:8px 12px;margin-bottom:16px;font-size:13px;">
+                        <span>الاسم: <b>${plan.supervisorName}</b></span>
+                        <span>الرقم الوظيفي: <b>${plan.supervisorId}</b></span>
+                        <span>الشهر: <b>${dateStr}</b></span>
+                    </div>
+                    <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:12px;">
+                        <thead>
+                            <tr style="background:#1f2937;color:white;">
+                                <th style="padding:9px 10px;border:1px solid #1f2937;width:110px;">اليوم</th>
+                                <th style="padding:9px 10px;border:1px solid #1f2937;width:80px;">التاريخ</th>
+                                <th style="padding:9px 10px;border:1px solid #1f2937;">المهمة / المدرسة</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                    <div style="display:flex;justify-content:space-around;margin-top:20px;padding-top:16px;border-top:2px solid #000;font-size:13px;">
+                        <div style="text-align:center;">المشرف<br><br>______________</div>
+                        <div style="text-align:center;">المسؤول المباشر<br><br>______________</div>
+                        <div style="text-align:center;">المدير<br><br>______________</div>
+                    </div>
+                    <div style="text-align:center;margin-top:16px;font-size:10px;color:#666;">إعداد وتصميم: أ. أسعد الخصيبي - مشرف الرياضة المدرسية</div>
+                `;
+                document.body.appendChild(container);
+                try {
+                    await html2pdf().set({
+                        margin: 0,
+                        filename: `خطة_${plan.supervisorName}_${filterMonth + 1}_${currentYear}.pdf`,
+                        image: { type: 'jpeg', quality: 0.98 },
+                        html2canvas: { scale: 2, useCORS: true, logging: false },
+                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                    }).from(container).save();
+                } finally {
+                    document.body.removeChild(container);
+                }
             };
 
             // دالة التنزيل الفردي الجديدة
@@ -705,7 +848,7 @@
                     <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200"><h3 className="text-gray-500 text-sm font-bold mb-3">التقارير المجمعة</h3><button onClick={exportToExcel} className="w-full py-2 rounded-lg font-bold flex items-center justify-center gap-2 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"><FileSpreadsheet size={18} /> تصدير تقرير شامل (تنسيق Excel مطابق للصورة)</button></div>
                     <div className="bg-white rounded shadow overflow-hidden">
                     <div className="p-4 border-b border-gray-200 bg-gray-50 flex flex-wrap gap-4 justify-between items-center"><div className="flex items-center gap-2"><CheckCircle className="text-emerald-500" size={20} /><h2 className="font-bold text-gray-700">الخطط المستلمة ({filteredPlans.length})</h2></div><div className="relative w-full md:w-64"><Search className="absolute right-3 top-3 text-gray-400 w-4 h-4" /><input type="text" placeholder="بحث بالاسم..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-4 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" /></div></div>
-                    <table className="w-full text-right"><thead className="bg-gray-100 text-sm"><tr><th className="p-4">الاسم</th><th className="p-4">الرقم</th><th className="p-4">إجراءات</th></tr></thead><tbody className="divide-y">{filteredPlans.map((plan, idx) => (<tr key={idx} className="hover:bg-gray-50"><td className="p-4 font-bold">{plan.supervisorName}</td><td className="p-4 text-gray-500">{plan.supervisorId}</td><td className="p-4 flex gap-2"><button onClick={()=>setEditingPlan(plan)} className="bg-blue-50 text-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-100"><Edit size={16}/> تعديل</button><button onClick={() => downloadSinglePlan(plan)} className="bg-green-50 text-green-600 px-3 py-1 rounded text-sm hover:bg-green-100 flex items-center gap-1" title="تنزيل الخطة"><Download size={16}/> تنزيل (Excel ملون)</button></td></tr>))} {plans.length===0 && <tr><td colSpan="3" className="p-8 text-center text-gray-400">لا توجد خطط</td></tr>}</tbody></table>
+                    <table className="w-full text-right"><thead className="bg-gray-100 text-sm"><tr><th className="p-4">الاسم</th><th className="p-4">الرقم</th><th className="p-4">إجراءات</th></tr></thead><tbody className="divide-y">{filteredPlans.map((plan, idx) => (<tr key={idx} className="hover:bg-gray-50"><td className="p-4 font-bold">{plan.supervisorName}</td><td className="p-4 text-gray-500">{plan.supervisorId}</td><td className="p-4 flex flex-wrap gap-2"><button onClick={()=>setEditingPlan(plan)} className="bg-blue-50 text-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-100 flex items-center gap-1"><Edit size={16}/> تعديل</button><button onClick={() => downloadSinglePlanPDF(plan)} className="bg-red-50 text-red-600 px-3 py-1 rounded text-sm hover:bg-red-100 flex items-center gap-1" title="تنزيل PDF"><FileText size={16}/> PDF</button><button onClick={() => downloadSinglePlan(plan)} className="bg-green-50 text-green-600 px-3 py-1 rounded text-sm hover:bg-green-100 flex items-center gap-1" title="تنزيل Excel"><Download size={16}/> Excel</button></td></tr>))} {plans.length===0 && <tr><td colSpan="3" className="p-8 text-center text-gray-400">لا توجد خطط</td></tr>}</tbody></table>
                     </div>
                 </div>
                 <AppFooter />
