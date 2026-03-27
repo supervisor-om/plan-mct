@@ -4,15 +4,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>نظام خطة سير المشرفين</title>
-    
+
+    <!-- preconnect: فتح الاتصال مبكراً بالخوادم الخارجية قبل تحميل الملفات -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://esm.sh">
+    <link rel="preconnect" href="https://www.gstatic.com">
+    <link rel="preconnect" href="https://unpkg.com">
+    <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
+    <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+
+    <!-- خط Tajawal عبر link بدلاً من @import داخل CSS (أسرع بشكل ملحوظ) -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap">
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Babel for JSX (تم تثبيت الإصدار المستقر 7.23.8 لتجنب أخطاء targets) -->
+
+    <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone@7.23.8/babel.min.js"></script>
 
-    <!-- مكتبة تصدير PDF مباشر -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- html2pdf: محذوف من هنا ويُحمَّل عند الطلب فقط (lazy loading) -->
 
     <!-- Import Map: تعريف مصادر المكتبات -->
     <script type="importmap">
@@ -30,8 +42,6 @@
     </script>
 
     <style>
-        /* أنماط مخصصة */
-        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap');
         body { font-family: 'Tajawal', sans-serif; background-color: #f3f4f6; }
         
         /* أنماط الطباعة */
@@ -125,7 +135,17 @@
             firebaseError = "خطأ في تهيئة قاعدة البيانات: " + e.message;
         }
 
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'supervisor-plan-v1'; 
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'supervisor-plan-v1';
+
+        // تحميل html2pdf عند الطلب فقط (lazy) لتقليل حجم التحميل الأولي
+        const loadHtml2Pdf = () => new Promise((resolve, reject) => {
+            if (window.html2pdf) { resolve(); return; }
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+        });
 
         // --- الثوابت ---
         const COLLECTIONS = { PLANS: 'supervisor_plans', CONFIG: 'app_config' };
@@ -450,6 +470,7 @@
                     `;
                     document.body.appendChild(container);
 
+                    await loadHtml2Pdf();
                     await html2pdf().set({
                         margin: 0,
                         filename: `${supervisorData.name} - ${monthName} ${currentYear}.pdf`,
@@ -696,6 +717,7 @@
                 `;
                 document.body.appendChild(container);
                 try {
+                    await loadHtml2Pdf();
                     await html2pdf().set({
                         margin: 0,
                         filename: `${plan.supervisorName} - ${monthName} ${currentYear}.pdf`,
