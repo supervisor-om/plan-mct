@@ -430,7 +430,7 @@
                     workingDays.forEach((d, index) => {
                         const dayNum = d.getDate();
                         const dayName = d.toLocaleDateString('ar-EG', { weekday: 'long' });
-                        const fullDate = `${dayNum} / ${currentMonth + 1} / ${currentYear}`;
+                        const fullDate = `${dayNum} / ${currentMonth + 1}`;
                         const key = 'd_' + dayNum;
                         const mandKey = getMandatoryKey(currentYear, currentMonth, dayNum);
                         const mandEvt = mandatoryEvents[mandKey];
@@ -540,7 +540,6 @@
                     <div className="flex gap-2">
                     <button onClick={() => setShowPasswordModal(true)} className="bg-emerald-800/50 hover:bg-emerald-800 p-2 rounded-full transition" title="تغيير كلمة المرور"><KeyRound size={18} /></button>
                     <button onClick={handleExportPDF} disabled={isExportingPDF} className="bg-white/20 p-2 rounded-full hover:bg-white/30 disabled:opacity-50" title="تصدير PDF مباشر">{isExportingPDF ? <RefreshCw size={18} className="animate-spin" /> : <FileText size={18} />}</button>
-                    <button onClick={handlePrint} className="bg-white/20 p-2 rounded-full hover:bg-white/30" title="طباعة"><FileDown size={18} /></button>
                     <button onClick={onLogout} className="bg-emerald-700 p-2 rounded-full hover:bg-emerald-800"><LogOut size={18} /></button>
                     </div>
                 </header>
@@ -676,7 +675,7 @@
                 workingDaysInM.forEach((d, index) => {
                     const dayNum = d.getDate();
                     const dayName = d.toLocaleDateString('ar-EG', { weekday: 'long' });
-                    const fullDate = `${dayNum} / ${filterMonth + 1} / ${currentYear}`;
+                    const fullDate = `${dayNum} / ${filterMonth + 1}`;
                     const key = 'd_' + dayNum;
                     const mandKey = getMandatoryKey(currentYear, filterMonth, dayNum);
                     const mandEvt = mandatoryEvents[mandKey];
