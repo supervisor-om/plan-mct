@@ -675,7 +675,7 @@
                 workingDaysInM.forEach((d, index) => {
                     const dayNum = d.getDate();
                     const dayName = d.toLocaleDateString('ar-EG', { weekday: 'long' });
-                    const fullDate = `${dayNum} / ${monthName}`;
+                    const fullDate = `${dayNum}`;
                     const key = 'd_' + dayNum;
                     const mandKey = getMandatoryKey(currentYear, filterMonth, dayNum);
                     const mandEvt = mandatoryEvents[mandKey];
