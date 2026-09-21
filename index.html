@@ -302,6 +302,36 @@ var a=document.querySelector('.svf-nav a[data-p="'+k+'"]');if(a)a.setAttribute('
             document.head.appendChild(s);
         });
 
+        // نصٌّ يُدرَج في HTML التصدير: المهامّ يكتبها المشرف بيده، و«<» أو «&» فيها كانت تقطع الجدول
+        // فيخرج الملفّ ناقصاً من ذلك الصفّ فما بعده.
+        const escHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+            c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+        // خيارات PDF مشتركة بين تصدير المشرف وتصدير المدير.
+        //  • scrollX/scrollY = 0: html2canvas يحسب موضع العنصر من تمرير الصفحة. من مرّر الصفحة قبل
+        //    الضغط خرج له PDF بلا نصفه الأعلى، ومن مرّر أكثر خرج فارغاً كلّه (قِيس: حبر 0٪ عند تمريرٍ
+        //    بـ1800px، و6٪ بدل 9.6٪ عند 600px).
+        //  • pagebreak: لا يُقطع صفٌّ ولا كتلة التوقيعات عند حدّ الصفحة.
+        const pdfOptions = (filename) => ({
+            margin: 0,
+            filename: filename,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, logging: false, scrollX: 0, scrollY: 0 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.pdf-avoid'] }
+        });
+
+        // المكتبة والخطّ يجب أن يكونا جاهزَين قبل الرسم، وإلّا رُسم النصّ ببديل
+        const prepareForPdf = async () => {
+            await loadHtml2Pdf();
+            try {
+                if (document.fonts) {
+                    await Promise.all(['400', '700'].map(w => document.fonts.load(w + ' 12px Tajawal')));
+                    await document.fonts.ready;
+                }
+            } catch (e) { /* الرسم يمضي ببديل الخطّ */ }
+        };
+
         // --- الثوابت ---
         const COLLECTIONS = { PLANS: 'supervisor_plans', CONFIG: 'app_config' };
         
@@ -509,6 +539,13 @@ var a=document.querySelector('.svf-nav a[data-p="'+k+'"]');if(a)a.setAttribute('
             const [statusMsg, setStatusMsg] = useState('');
             const [showPasswordModal, setShowPasswordModal] = useState(false);
             const [isExportingPDF, setIsExportingPDF] = useState(false);
+            // التصدير لا يبدأ قبل وصول الخطّة والأحداث من قاعدة البيانات: planData تبدأ {} فمن ضغط قبل
+            // وصولها خرج له جدولٌ بلا مهامّ. والجاهزيّة مربوطةٌ بمعرّف الخطّة الحاليّة لا بـ true عامّة،
+            // فلا تبقى صحيحةً لشهرٍ سبق عند تبديل الشهر.
+            const [readyPlanId, setReadyPlanId] = useState(null);
+            const [mandReady, setMandReady] = useState(false);
+            const planIdNow = `${supervisorData.jobId}_${currentYear}_${currentMonth}`;
+            const exportReady = readyPlanId === planIdNow && mandReady;
 
             useEffect(() => {
                 if (!db || !user) return;
@@ -526,7 +563,9 @@ var a=document.querySelector('.svf-nav a[data-p="'+k+'"]');if(a)a.setAttribute('
                     }
                 });
                 
-                const unsub2 = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', COLLECTIONS.CONFIG, 'mandatory_events'), s=>s.exists()&&setMandatoryEvents(s.data()));
+                const unsub2 = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', COLLECTIONS.CONFIG, 'mandatory_events'),
+                    s => { if (s.exists()) setMandatoryEvents(s.data()); setMandReady(true); },
+                    err => { console.error(err); setStatusMsg('❌ تعذّر تحميل الأحداث'); });
                 return () => { unsub1(); unsub2(); };
             }, [supervisorData.jobId, user]); 
 
@@ -538,7 +577,8 @@ var a=document.querySelector('.svf-nav a[data-p="'+k+'"]');if(a)a.setAttribute('
                 const prevPlanId = `${supervisorData.jobId}_${prevYear}_${prevMonth}`;
                 const unsub1 = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', COLLECTIONS.PLANS, `plan_${planId}`), s => {
                     setPlanData(s.exists() ? s.data().visits || {} : {});
-                });
+                    setReadyPlanId(planId);
+                }, err => { console.error(err); setStatusMsg('❌ تعذّر تحميل الخطة'); });
                 const unsub2 = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', COLLECTIONS.PLANS, `plan_${prevPlanId}`), s => {
                     setPrevMonthData(s.exists() ? s.data().visits || {} : {});
                 });
@@ -576,6 +616,11 @@ var a=document.querySelector('.svf-nav a[data-p="'+k+'"]');if(a)a.setAttribute('
 
             const handleExportPDF = async () => {
                 if (isExportingPDF) return;
+                if (!exportReady) {
+                    setStatusMsg('⏳ جارٍ تحميل الخطة… أعد المحاولة بعد لحظة');
+                    setTimeout(() => setStatusMsg(''), 3000);
+                    return;
+                }
                 setIsExportingPDF(true);
                 setStatusMsg('جاري إنشاء PDF...');
                 try {
@@ -594,7 +639,7 @@ var a=document.querySelector('.svf-nav a[data-p="'+k+'"]');if(a)a.setAttribute('
                         rows += `<tr style="background:${bg}">
                             <td style="padding:8px 10px;border:1px solid #d1d5db;font-weight:bold;">${dayName}</td>
                             <td style="padding:8px 10px;border:1px solid #d1d5db;text-align:center;font-size:11px;">${fullDate}</td>
-                            <td style="padding:8px 10px;border:1px solid #d1d5db;">${mandEvt ? '🔒 ' + task : task}</td>
+                            <td style="padding:8px 10px;border:1px solid #d1d5db;">${escHtml(mandEvt ? '🔒 ' + task : task)}</td>
                         </tr>`;
                     });
 
@@ -621,25 +666,21 @@ var a=document.querySelector('.svf-nav a[data-p="'+k+'"]');if(a)a.setAttribute('
                             </thead>
                             <tbody>${rows}</tbody>
                         </table>
-                        <div style="display:flex;justify-content:space-around;margin-top:20px;padding-top:16px;border-top:2px solid #000;font-size:13px;">
+                        <div class="pdf-avoid" style="display:flex;justify-content:space-around;margin-top:20px;padding-top:16px;border-top:2px solid #000;font-size:13px;">
                             <div style="text-align:center;">المشرف<br><br>______________</div>
                             <div style="text-align:center;">المسؤول المباشر<br><br>______________</div>
                             <div style="text-align:center;">المدير<br><br>______________</div>
                         </div>
-                        <div style="text-align:center;margin-top:16px;font-size:10px;color:#666;">إعداد وتصميم: أ. أسعد الخصيبي - مشرف الرياضة المدرسية</div>
+                        <div class="pdf-avoid" style="text-align:center;margin-top:16px;font-size:10px;color:#666;">إعداد وتصميم: أ. أسعد الخصيبي - مشرف الرياضة المدرسية</div>
                     `;
                     document.body.appendChild(container);
-
-                    await loadHtml2Pdf();
-                    await html2pdf().set({
-                        margin: 0,
-                        filename: `${supervisorData.name} - ${monthName} ${currentYear}.pdf`,
-                        image: { type: 'jpeg', quality: 0.98 },
-                        html2canvas: { scale: 2, useCORS: true, logging: false },
-                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                    }).from(container).save();
-
-                    document.body.removeChild(container);
+                    try {
+                        await prepareForPdf();
+                        await html2pdf().set(pdfOptions(`${supervisorData.name} - ${monthName} ${currentYear}.pdf`)).from(container).save();
+                    } finally {
+                        // كانت الحاوية تبقى في الصفحة إن فشل التحميل، فتتراكم نسخةٌ منها مع كلّ محاولة
+                        container.remove();
+                    }
                     setStatusMsg('✅ تم تصدير PDF');
                 } catch (e) {
                     console.error(e);
@@ -694,7 +735,7 @@ var a=document.querySelector('.svf-nav a[data-p="'+k+'"]');if(a)a.setAttribute('
                     </div>
                     <div className="flex gap-2">
                     <button onClick={() => setShowPasswordModal(true)} className="bg-emerald-800/50 hover:bg-emerald-800 p-2 rounded-full transition" title="تغيير كلمة المرور"><KeyRound size={18} /></button>
-                    <button onClick={handleExportPDF} disabled={isExportingPDF} className="bg-white/20 p-2 rounded-full hover:bg-white/30 disabled:opacity-50" title="تصدير PDF مباشر">{isExportingPDF ? <RefreshCw size={18} className="animate-spin" /> : <FileText size={18} />}</button>
+                    <button onClick={handleExportPDF} disabled={isExportingPDF || !exportReady} className="bg-white/20 p-2 rounded-full hover:bg-white/30 disabled:opacity-50" title={exportReady ? "تصدير PDF مباشر" : "جارٍ تحميل الخطة…"}>{isExportingPDF ? <RefreshCw size={18} className="animate-spin" /> : <FileText size={18} />}</button>
                     <button onClick={onLogout} className="bg-emerald-700 p-2 rounded-full hover:bg-emerald-800"><LogOut size={18} /></button>
                     </div>
                 </header>
@@ -780,10 +821,10 @@ var a=document.querySelector('.svf-nav a[data-p="'+k+'"]');if(a)a.setAttribute('
                 });
                 const unsub2 = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', COLLECTIONS.CONFIG, 'mandatory_events'), s=>s.exists()&&setMandatoryEvents(s.data()));
                 const unsub3 = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', COLLECTIONS.PLANS)), snap => {
-                    const p = []; snap.forEach(d => { if(d.data().month === filterMonth) p.push(d.data()) }); setPlans(p);
+                    const p = []; snap.forEach(d => { const x = d.data(); if (x.month === filterMonth && (x.year === undefined || x.year === currentYear)) p.push(x); }); setPlans(p);
                 });
                 return () => { unsub1(); unsub2(); unsub3(); };
-            }, [filterMonth, user]);
+            }, [filterMonth, currentYear, user]);
 
             // دالة لتغيير الشهر النشط (وحفظه في الإعدادات)
             const handleMonthYearChange = async (month, year) => {
@@ -839,7 +880,7 @@ var a=document.querySelector('.svf-nav a[data-p="'+k+'"]');if(a)a.setAttribute('
                     rows += `<tr style="background:${bg}">
                         <td style="padding:8px 10px;border:1px solid #d1d5db;font-weight:bold;">${dayName}</td>
                         <td style="padding:8px 10px;border:1px solid #d1d5db;text-align:center;font-size:11px;">${fullDate}</td>
-                        <td style="padding:8px 10px;border:1px solid #d1d5db;">${mandEvt ? '🔒 ' + task : task}</td>
+                        <td style="padding:8px 10px;border:1px solid #d1d5db;">${escHtml(mandEvt ? '🔒 ' + task : task)}</td>
                     </tr>`;
                 });
 
@@ -866,25 +907,19 @@ var a=document.querySelector('.svf-nav a[data-p="'+k+'"]');if(a)a.setAttribute('
                         </thead>
                         <tbody>${rows}</tbody>
                     </table>
-                    <div style="display:flex;justify-content:space-around;margin-top:20px;padding-top:16px;border-top:2px solid #000;font-size:13px;">
+                    <div class="pdf-avoid" style="display:flex;justify-content:space-around;margin-top:20px;padding-top:16px;border-top:2px solid #000;font-size:13px;">
                         <div style="text-align:center;">المشرف<br><br>______________</div>
                         <div style="text-align:center;">المسؤول المباشر<br><br>______________</div>
                         <div style="text-align:center;">المدير<br><br>______________</div>
                     </div>
-                    <div style="text-align:center;margin-top:16px;font-size:10px;color:#666;">إعداد وتصميم: أ. أسعد الخصيبي - مشرف الرياضة المدرسية</div>
+                    <div class="pdf-avoid" style="text-align:center;margin-top:16px;font-size:10px;color:#666;">إعداد وتصميم: أ. أسعد الخصيبي - مشرف الرياضة المدرسية</div>
                 `;
                 document.body.appendChild(container);
                 try {
-                    await loadHtml2Pdf();
-                    await html2pdf().set({
-                        margin: 0,
-                        filename: `${plan.supervisorName} - ${monthName} ${currentYear}.pdf`,
-                        image: { type: 'jpeg', quality: 0.98 },
-                        html2canvas: { scale: 2, useCORS: true, logging: false },
-                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                    }).from(container).save();
+                    await prepareForPdf();
+                    await html2pdf().set(pdfOptions(`${plan.supervisorName} - ${monthName} ${currentYear}.pdf`)).from(container).save();
                 } finally {
-                    document.body.removeChild(container);
+                    container.remove();
                 }
             };
 
@@ -907,7 +942,7 @@ var a=document.querySelector('.svf-nav a[data-p="'+k+'"]');if(a)a.setAttribute('
                     <tr class="${rowClass}">
                         <td>${dayName}</td>
                         <td>${dayNum}/${filterMonth + 1}</td>
-                        <td>${task}</td>
+                        <td>${escHtml(task)}</td>
                     </tr>`;
                 });
 
@@ -967,7 +1002,7 @@ var a=document.querySelector('.svf-nav a[data-p="'+k+'"]');if(a)a.setAttribute('
                         const key = 'd_' + dayNum;
                         const mandKey = getMandatoryKey(currentYear, filterMonth, dayNum);
                         const task = mandatoryEvents[mandKey] || (plan.visits && plan.visits[key]) || '';
-                        taskCells += `<td>${task}</td>`;
+                        taskCells += `<td>${escHtml(task)}</td>`;
                     });
                     dataRows += `<tr class="${rowClass}"><td>${index + 1}</td><td style="font-weight: bold;">${plan.supervisorName}</td>${taskCells}</tr>`;
                 });
